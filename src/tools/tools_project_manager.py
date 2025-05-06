@@ -1,6 +1,6 @@
 from langchain.tools import tool
 from typing_extensions import Annotated
-from todoist_api_python.api import TodoistAPI
+import json
 import os
 from src.utilities.print_formatters import print_formatted, print_text_snippet
 from src.utilities.manager_utils import actualize_progress_description_file, research_second_task, cleanup_research_histories
@@ -20,8 +20,18 @@ load_dotenv(find_dotenv())
 
 work_dir = os.getenv("WORK_DIR")
 load_dotenv(join_paths(work_dir, ".clean_coder/.env"))
-todoist_api_key = os.getenv("TODOIST_API_KEY")
-todoist_api = TodoistAPI(todoist_api_key)
+todos_file = join_paths(work_dir, ".clean_coder/todos.json")
+
+def load_todos():
+    if not os.path.exists(todos_file):
+        return []
+    with open(todos_file, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def save_todos(todos):
+    with open(todos_file, "w", encoding="utf-8") as f:
+        json.dump(todos, f, indent=2)
+
 
 # Create a persistent ThreadPoolExecutor for background tasks
 background_executor = ThreadPoolExecutor(max_workers=1)
@@ -47,15 +57,17 @@ def add_task(
     if human_message not in ["o", "ok"]:
         return f"Action wasn't executed because of human interruption. He said: {human_message}"
 
-    try:
-        todoist_api.add_task(
-            project_id=os.getenv("TODOIST_PROJECT_ID"),
-            content=task_name,
-            description=task_description,
-            order=order,
-        )
-    except HTTPError:
-        raise Exception(f"Are you sure Todoist project (ID: {os.getenv('TODOIST_PROJECT_ID')}) exists?")
+    todos = load_todos()
+    task_id = str(uuid.uuid4())
+    task = {
+        "id": task_id,
+        "content": task_name,
+        "description": task_description,
+        "order": order
+    }
+    todos.append(task)
+    todos.sort(key=lambda t: t["order"])
+    save_todos(todos)
     return "Task added successfully"
 
 
@@ -69,30 +81,26 @@ def modify_task(
     delete: Annotated[bool, "If True, task will be deleted"] = False,
 ):
     """Modify task in project management platform (Todoist)."""
-    try:
-        task_name = todoist_api.get_task(task_id).content
-    except HTTPError:
-        raise Exception(
-            f"Are you sure Todoist project (ID: {os.getenv('TODOIST_PROJECT_ID')}) and task (ID: {task_id}) exist?"
-        )
+    todos = load_todos()
+    idx = next((i for i, t in enumerate(todos) if t["id"] == task_id), None)
+    if idx is None:
+        return f"Task with id {task_id} not found."
+    task = todos[idx]
     human_message = user_input(
-        f"I want to {'delete' if delete else 'modify'} task '{task_name}'. Type (o)k or provide commentary. "
+        f"I want to {'delete' if delete else 'modify'} task '{task['content']}'. Type (o)k or provide commentary. "
     )
     if human_message not in ["o", "ok"]:
         return f"Action wasn't executed because of human interruption. He said: {human_message}"
-
-    update_data = {}
-    if new_task_name:
-        update_data["content"] = new_task_name
-    if new_task_description:
-        update_data["description"] = new_task_description
-    if update_data:
-        todoist_api.update_task(task_id=task_id, **update_data)
-
     if delete:
-        todoist_api.delete_task(task_id=task_id)
+        todos.pop(idx)
+        save_todos(todos)
         return "Task deleted successfully"
-
+    if new_task_name:
+        task["content"] = new_task_name
+    if new_task_description:
+        task["description"] = new_task_description
+    todos[idx] = task
+    save_todos(todos)
     return "Task modified successfully"
 
 
@@ -104,13 +112,13 @@ def reorder_tasks(
     ],
 ):
     """Reorder tasks in project management platform (Todoist)."""
-    command = {"type": "item_reorder", "uuid": str(uuid.uuid4()), "args": {"items": task_items}}
-    commands_json = json.dumps([command])
-    requests.post(
-        "https://api.todoist.com/sync/v9/sync",
-        headers={"Authorization": f"Bearer {todoist_api_key}"},
-        data={"commands": commands_json},
-    )
+    todos = load_todos()
+    id_to_order = {item['id']: item['child_order'] for item in task_items}
+    for t in todos:
+        if t['id'] in id_to_order:
+            t['order'] = id_to_order[t['id']]
+    todos.sort(key=lambda t: t["order"])
+    save_todos(todos)
     return "Tasks reordered successfully"
 
 
@@ -124,29 +132,30 @@ def finish_project_planning(dummy: Annotated[str, "Type 'ok' to proceed."]):
         return f"Human: {human_message}"
         
     # Get tasks
-    tasks = todoist_api.get_tasks(project_id=os.getenv("TODOIST_PROJECT_ID"))
-    if not tasks:
+    todos = load_todos()
+    if not todos:
         return "No tasks to execute"
-        
-    first_task = tasks[0]
-    task_name_description = f"{first_task.content}\n\n{first_task.description}"
+    
+    first_task = todos[0]
+    task_name_description = f"{first_task['content']}\n\n{first_task['description']}"
 
     # Start background research of second task if available and not researched yet
-    if len(tasks) >= 2:
-        second_task = tasks[1]
-        history_file = join_paths(work_dir, ".clean_coder", f"research_history_task_{second_task.id}.json")
+    if len(todos) >= 2:
+        second_task = todos[1]
+        history_file = join_paths(work_dir, ".clean_coder", f"research_history_task_{second_task['id']}.json")
         if not os.path.exists(history_file):
             background_executor.submit(research_second_task, second_task)
 
     # Execute the main pipeline to implement the task
     print_formatted("Asked programmer to execute task:", color="light_blue")
-    print_text_snippet(first_task.description, title=first_task.content)
-    run_clean_coder_pipeline(task_name_description, work_dir, task_id=first_task.id)
+    print_text_snippet(first_task['description'], title=first_task['content'])
+    run_clean_coder_pipeline(task_name_description, work_dir, task_id=first_task['id'])
 
     actualize_progress_description_file(task_name_description)
 
-    # Mark task as done
-    todoist_api.close_task(task_id=first_task.id)
+    # Mark task as done (remove from list)
+    todos.pop(0)
+    save_todos(todos)
 
     cleanup_research_histories()
 

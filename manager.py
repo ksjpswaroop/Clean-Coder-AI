@@ -4,13 +4,12 @@ if __name__ == "__main__":
     print_ascii_logo()
 
 from dotenv import find_dotenv, load_dotenv
-from src.utilities.set_up_dotenv import set_up_env_manager, add_todoist_envs
+from src.utilities.set_up_dotenv import set_up_env_manager
 import os
 
 if not find_dotenv():
     set_up_env_manager()
-elif load_dotenv(find_dotenv()) and not os.getenv("TODOIST_API_KEY"):
-    add_todoist_envs()
+
 
 from typing import TypedDict, Sequence
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage

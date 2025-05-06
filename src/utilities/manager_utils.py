@@ -9,7 +9,7 @@ from src.utilities.start_project_functions import create_project_plan_file
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_core.load import loads
-from todoist_api_python.api import TodoistAPI
+
 import questionary
 import concurrent.futures
 from dotenv import load_dotenv, find_dotenv
@@ -25,8 +25,14 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 load_dotenv(find_dotenv())
 work_dir = os.getenv("WORK_DIR")
 load_dotenv(join_paths(work_dir, ".clean_coder/.env"))
-todoist_api_key = os.getenv("TODOIST_API_KEY")
-todoist_api = TodoistAPI(os.getenv("TODOIST_API_KEY"))
+todos_file = join_paths(work_dir, ".clean_coder/todos.json")
+
+def load_todos():
+    if not os.path.exists(todos_file):
+        return []
+    with open(todos_file, "r", encoding="utf-8") as f:
+        return json.load(f)
+
 
 QUESTIONARY_STYLE = questionary.Style(
     [
@@ -66,44 +72,22 @@ def read_project_plan():
 
 
 def fetch_epics():
-    return todoist_api.get_sections(project_id=os.getenv("TODOIST_PROJECT_ID"))
-
+    # No epics in local mode, return empty list
+    return []
 
 def fetch_tasks():
-    return todoist_api.get_tasks(project_id=os.getenv("TODOIST_PROJECT_ID"))
+    return load_todos()
 
 
-def store_project_id(proj_id):
-    with open(join_paths(work_dir, ".clean_coder/.env"), "a") as f:
-        f.write(f"TODOIST_PROJECT_ID={proj_id}\n")
-    os.environ["TODOIST_PROJECT_ID"] = proj_id
-
+# store_project_id is not needed for local storage, so remove it.
 
 def get_project_tasks_and_epics():
+    tasks = fetch_tasks()
+    if not tasks:
+        return "<empty>"
     output_string = ""
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        future_epics = executor.submit(fetch_epics)
-        future_tasks = executor.submit(fetch_tasks)
-
-        # Wait for results
-        epics = future_epics.result()
-        tasks = future_tasks.result()
-
-    for epic in epics:
-        output_string += f"## Epic: {epic.name} (id: {epic.id})\n\n"
-        tasks_in_epic = [task for task in tasks if task.section_id == epic.id]
-        if tasks_in_epic:
-            output_string += "\n".join(
-                f"Task:\nid: {task.id}, \nName: {task.content}, \nDescription: \n'''{task.description}''', \nOrder: {task.order}\n\n"
-                for task in tasks_in_epic
-            )
-        else:
-            output_string += f"No tasks in epic '{epic.name}'\n\n"
-    tasks_without_epic = [task for task in tasks if task.section_id is None]
-    if tasks_without_epic:
-        output_string += "## Tasks without epic:\n\n"
-
-        output_string = "<empty>"
+    for task in tasks:
+        output_string += f"Task:\nid: {task['id']}, \nName: {task['content']}, \nDescription: \n'''{task['description']}''', \nOrder: {task['order']}\n\n"
     return output_string
 
 
@@ -111,7 +95,7 @@ def parse_project_tasks(tasks):
     output_string = str()
     if tasks:
         output_string += "\n".join(
-            f"Task:\nid: {task.id}, \nName: {task.content}, \nDescription: \n'''{task.description}''', \nOrder: {task.order}\n\n"
+            f"Task:\nid: {task['id']}, \nName: {task['content']}, \nDescription: \n'''{task['description']}''', \nOrder: {task['order']}\n"
             for task in tasks
         )
     else:
@@ -124,13 +108,13 @@ def cleanup_research_histories() -> None:
     """
     Delete every file matching research_history_task_<id>.json inside
     .clean_coder/research_histories when <id> is not among current
-    Todoist task IDs.
+    task IDs.
     """
     history_dir = join_paths(work_dir, ".clean_coder", "research_histories")
     if not os.path.exists(history_dir):
         return
 
-    active_ids = {str(t.id) for t in fetch_tasks()}
+    active_ids = {str(t['id']) for t in fetch_tasks()}
 
     for fname in os.listdir(history_dir):
         if fname.startswith("research_history_task_") and fname.endswith(".json"):
@@ -200,7 +184,7 @@ def dict_to_message(msg_dict):
         )
 
 
-def create_todoist_project():
+# create_todoist_project not needed for local storage.
     try:
         response = todoist_api.add_project(name=f"Clean_Coder_{os.path.basename(os.path.normpath(work_dir))}")
     except HTTPError:
@@ -208,14 +192,14 @@ def create_todoist_project():
     return response.id
 
 
-def setup_todoist_project_if_needed():
+# setup_todoist_project_if_needed not needed for local storage.
     load_dotenv(join_paths(work_dir, ".clean_coder/.env"))
     if os.getenv("TODOIST_PROJECT_ID"):
         return
     setup_todoist_project()
 
 
-def setup_todoist_project():
+# setup_todoist_project not needed for local storage.
     projects = todoist_api.get_projects()
     if not projects:
         new_proj_id = create_todoist_project()
@@ -241,15 +225,8 @@ def setup_todoist_project():
 
 
 def prompt_user_if_planning_needed():
-    choice = questionary.select(
-        "Choose an option:",
-        choices=[
-            "Start/continue planning my project (Default)",
-            "Project is fully planned in Todoist, just execute tasks",
-        ],
-        style=QUESTIONARY_STYLE,
-    ).ask()
-    return choice == "Start/continue planning my project (Default)"
+    # Only one option for local mode
+    return True
 
 
 def get_manager_messages(saved_messages_path):

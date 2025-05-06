@@ -63,8 +63,7 @@ def set_up_env_manager():
     envs["FRONTEND_URL"] = input(
         "Provide url under which your frontend app is running (Optional) (Example: http://localhost:1234):\n"
     )
-    print(colored("4/4. Now let's set up your Todoist connection.", color="cyan"))
-    envs["TODOIST_API_KEY"] = input("Please provide your Todoist API key:\n")
+
 
     with open(".env", "w") as f:
         for key, value in envs.items():
@@ -77,18 +76,6 @@ def set_up_env_manager():
     if os.getenv("WORK_DIR") == "/work_dir":
         print(colored("Rerun to read variables you just saved.", color="yellow"))
         sys.exit()
-
-
-def add_todoist_envs():
-    envs = {}
-    print(colored("1/1. Now let's set up your Todoist connection.", color="cyan"))
-    envs["TODOIST_API_KEY"] = input("Provide your Todoist API key:\n")
-
-    with open(".env", "a+") as f:
-        for key, value in envs.items():
-            f.write(f"{key}={value}\n")
-
-    # load
     for key, value in envs.items():
         if value:  # Only load if the value is not empty
             os.environ[key] = value

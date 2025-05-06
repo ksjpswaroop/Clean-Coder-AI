@@ -4,7 +4,7 @@ import requests
 from src.utilities.start_work_functions import file_folder_ignored, Work
 from src.utilities.print_formatters import print_formatted
 from dotenv import load_dotenv, find_dotenv
-from todoist_api_python.api import TodoistAPI
+
 from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.load import dumps, loads
 import json
@@ -14,8 +14,8 @@ import click
 load_dotenv(find_dotenv())
 work_dir = os.getenv("WORK_DIR")
 log_file_path = os.getenv("LOG_FILE")
-todoist_api = TodoistAPI(os.getenv("TODOIST_API_KEY"))
-PROJECT_ID = os.getenv("TODOIST_PROJECT_ID")
+
+
 
 
 TOOL_NOT_EXECUTED_WORD = "Tool not been executed. "
